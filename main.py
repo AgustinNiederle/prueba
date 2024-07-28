@@ -1,33 +1,111 @@
 from fastapi import FastAPI, HTTPException
 import pandas as pd
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+nltk.download('punkt')
+nltk.download('stopwords')
 
 app = FastAPI()
 
+
 df = pd.read_parquet(r'df_reducido_prueba.parquet')
+df = pd.DataFrame(df)
+df['overviews'] = df['overview'].fillna('')
+
+def preprocess_text(text):
+    stop_words = set(stopwords.words('english'))
+    words = word_tokenize(text.lower())
+    return ' '.join([word for word in words if word.isalpha() and word not in stop_words])
+
+df['clean_overviews'] = df['overviews'].apply(preprocess_text)
+
+vectorizer = TfidfVectorizer()
+tfidf_matrix = vectorizer.fit_transform(df['clean_overviews'])
+cosine_sim = cosine_similarity(tfidf_matrix, tfidf_matrix)
+cosine_sim_df = pd.DataFrame(cosine_sim, index=df['title'], columns=df['title'])
+
+@app.get("/recomendacion/{title}")
+def get_recommendation(title: str, top_n: int = 5):
+    if title not in cosine_sim_df.index:
+        raise HTTPException(status_code=404, detail=f'El titulo "{title}" no fue encontrado en la colección. Por favor, ingrese otro titulo en inglés.')
+    
+    sim_scores = cosine_sim_df[title]
+      
+    sim_scores = sim_scores.drop(title).sort_values(ascending=False)
+    
+    top_similar_titles = sim_scores.head(top_n).index.tolist()
+    return {f"Si te gustó {title}, también podrían interesarte: {top_similar_titles}"}
+
+#sumo estas listas que voy a necesitar
+dias = {
+    "lunes": 0,
+    "martes": 1,
+    "miércoles": 2,
+    "jueves": 3,
+    "viernes": 4,
+    "sábado": 5,
+    "domingo": 6
+}
+
+meses = {
+    "enero": 1,
+    "febrero": 2,
+    "marzo": 3,
+    "abril": 4,
+    "mayo": 5,
+    "junio": 6,
+    "julio": 7,
+    "agosto": 8,
+    "septiembre": 9,
+    "octubre": 10,
+    "noviembre": 11,
+    "diciembre": 12
+}
 
 @app.get("/cantidad_de_estrenos_mes/{mes}")
-def get_fecha(mes: int):
-    # Convertir la columna de fecha a datetime
+def get_fecha(mes: str):
+    
+    mes = mes.lower()
+    # Verifico si el nombre del mes es válido
+    if mes not in meses:
+        raise HTTPException(status_code=400, detail="Mes inválido. Los meses válidos son: " + ", ".join(meses.keys()))
+
+    #convierto
+    mes_num = meses[mes]
+
+    # Convierto la columna de fecha a datetime
     df['release_date'] = pd.to_datetime(df['release_date'])
 
-    # Filtrar el DataFrame por el mes indicado
-    filtered_df = df[df['release_date'].dt.month == mes]
+    filtered_df = df[df['release_date'].dt.month == mes_num]
     count = filtered_df.shape[0]
 
-    return {f"En el mes {mes} se estrenaron un Total de {count} películas"}
+    return {f"En el mes de {mes} se estrenaron un total de {count} películas"}
+
 
 @app.get("/cantidad_de_estrenos_dia/{dia}")
-def get_fecha(dia: int):
+def get_fecha(dia: str):
+    # Convertir el nombre del día a minúsculas
+    dia = dia.lower()
+
+    # Verificar si el nombre del día es válido
+    if dia not in dias:
+        raise HTTPException(status_code=400, detail="Día inválido. Los días válidos son: " + ", ".join(dias.keys()))
+
+    # Convertir el nombre del día a su correspondiente número
+    dia_num = dias[dia]
+
     # Convertir la columna de fecha a datetime
     df['release_date'] = pd.to_datetime(df['release_date'])
 
-    # Filtrar el DataFrame por el mes indicado
-    filtered_df = df[df['release_date'].dt.day == dia]
+    # Filtrar el DataFrame por el día de la semana indicado
+    filtered_df = df[df['release_date'].dt.dayofweek == dia_num]
     count = filtered_df.shape[0]
 
-    return {f"En el dia {dia} se estrenaron un Total de {count} películas"}
+    return {f"En el día {dia.capitalize()} se estrenaron un total de {count} películas"}
 
-#ahora necesito que los meses y los dias se ingresen en texto
 
 @app.get("/score_titulo/{titulo}")
 def score_titulo(titulo: str):
@@ -106,4 +184,3 @@ def get_director(nombre_director_a: str):
     return {
         "mensaje": f"{nombre_director_a} dirigió {int(movies)} película/s, tiene un éxito promedio de {float(succes):.2f} y una ganancia promedio de {float(gain_avg):.2f} millones por película"
     }
-
