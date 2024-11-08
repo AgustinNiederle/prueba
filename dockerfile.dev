@@ -1,0 +1,23 @@
+# Usa una imagen base de Python
+FROM python:3.11-slim
+
+# Instala dependencias de sistema y el SDK de Google Cloud
+RUN apt-get update && apt-get install -y curl gnupg && \
+    curl -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - && \
+    echo "deb https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    apt-get update && apt-get install -y google-cloud-sdk
+
+# Configura el directorio de trabajo y copia los archivos de la aplicación
+WORKDIR /app
+COPY . .
+
+# Instala las dependencias de Python
+RUN pip install -r requirements.txt
+
+# Expone el puerto 8080
+EXPOSE 8080
+
+# Comando para iniciar la aplicación
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+
+ENV GOOGLE_APPLICATION_CREDENTIALS="/workspaces/api/utopian-honor-438417-u7-5b7f84fcfd25.json"
